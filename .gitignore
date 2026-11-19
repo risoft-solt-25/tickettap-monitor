@@ -1,0 +1,9 @@
+node_modules/
+profile/
+.token
+history.jsonl
+recordings/
+.env
+
+*.db-wal
+*.db-shm

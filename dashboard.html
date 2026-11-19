@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tickettap Monitor</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#171b22; --panel2:#1e242d; --line:#2a313c; --text:#e8ecf2; --muted:#8b95a5;
+    --green:#22c55e; --green-bg:rgba(34,197,94,.14); --amber:#f59e0b; --amber-bg:rgba(245,158,11,.14);
+    --red:#ef4444; --red-bg:rgba(239,68,68,.13); --gray-bg:rgba(139,149,165,.10);
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f4f6f9; --panel:#fff; --panel2:#f0f3f7; --line:#dde3ea; --text:#17202b; --muted:#667085;
+      --green:#16a34a; --green-bg:rgba(22,163,74,.12); --amber:#d97706; --amber-bg:rgba(217,119,6,.12);
+      --red:#dc2626; --red-bg:rgba(220,38,38,.10); --gray-bg:rgba(102,112,133,.09);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px 16px 40px}
+  header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;margin-bottom:16px}
+  h1{margin:0;font-size:22px}
+  .sub{color:var(--muted);font-size:13px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .stat b{display:block;font-size:26px;line-height:1.1}
+  .stat span{color:var(--muted);font-size:12px}
+  .stat.ok b{color:var(--green)}
+  .bar{height:6px;border-radius:3px;background:var(--panel2);overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;background:var(--green);transition:width .4s}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .tools button,.tools input{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit}
+  .tools button{cursor:pointer}
+  .tools button.on{border-color:var(--green);color:var(--green)}
+  .tools input{min-width:200px}
+  .card,.zone,.zones{min-width:0}
+  .zone span,.errbox{overflow-wrap:anywhere}
+  .errbox{background:var(--red-bg);border:1px solid var(--red);border-radius:9px;padding:10px 12px;color:var(--text);font-size:13px}
+  .errbox b{display:block;color:var(--red);margin-bottom:2px}
+  .errbox small{color:var(--muted)}
+  .card.err{border-color:var(--red)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+  .card.has{border-color:var(--green);box-shadow:0 0 0 1px var(--green-bg),0 6px 20px var(--green-bg)}
+  .card.pending{opacity:.6}
+  .card header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .card h3{margin:0;font-size:16px;line-height:1.2}
+  .card h3 small{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:2px}
+  .total{text-align:right;white-space:nowrap}
+  .total b{font-size:28px;line-height:1;display:block}
+  .has .total b{color:var(--green)}
+  .total span{font-size:11px;color:var(--muted)}
+  .zones{display:flex;flex-direction:column;gap:6px}
+  .zone{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:8px 10px;border-radius:9px;border-left:4px solid transparent}
+  .zone .zn{font-weight:600;font-size:13px}
+  .zone .zc{font-weight:700;text-align:right;font-size:15px}
+  .zone .zp{color:var(--muted);font-size:12px}
+  .zone .zf{color:var(--muted);font-size:12px;text-align:right}
+  .zone.green{background:var(--green-bg);border-color:var(--green)} .zone.green .zc{color:var(--green)}
+  .zone.amber{background:var(--amber-bg);border-color:var(--amber)} .zone.amber .zc{color:var(--amber)}
+  .zone.red{background:var(--red-bg);border-color:var(--red)} .zone.red .zc{color:var(--red)}
+  .zone.gray{background:var(--gray-bg);border-color:var(--muted)} .zone.gray .zc{color:var(--muted)}
+  .foot{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:8px}
+  .foot .stale{color:var(--amber)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-bottom:12px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .empty{color:var(--muted);padding:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>🎟️ Tickettap Monitor</h1>
+      <div class="sub" id="sub">Cargando…</div>
+    </div>
+    <div class="sub" id="clock"></div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><b id="sArtists">–</b><span>artistas / eventos</span></div>
+    <div class="stat ok"><b id="sWith">–</b><span>con boletos</span></div>
+    <div class="stat ok"><b id="sTotal">–</b><span>boletos disponibles (suma)</span></div>
+    <div class="stat"><b id="sProgress">–</b><span id="sProgressLbl">progreso del ciclo</span><div class="bar"><i id="sBar" style="width:0"></i></div></div>
+    <div class="stat"><b id="sNext">–</b><span>próximo ciclo</span></div>
+  </section>
+
+  <div class="tools">
+    <button id="fAll" class="on">Todos</button>
+    <button id="fHas">Solo con boletos</button>
+    <input id="q" placeholder="Buscar artista…">
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--green)"></i>Más de 5 boletos</span>
+    <span><i style="background:var(--amber)"></i>1 a 5</span>
+    <span><i style="background:var(--red)"></i>Agotado</span>
+    <span><i style="background:var(--muted)"></i>Sin dato / error</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+let data = null, onlyHas = false, query = '';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => Number(n).toLocaleString('es-MX');
+
+function ago(ts) {
+  if (!ts) return 'sin datos';
+  const s = Math.max(0, Math.round((Date.now() - new Date(ts)) / 1000));
+  if (s < 10) return 'ahora';
+  if (s < 60) return `hace ${s} s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `hace ${m} min` : `hace ${Math.floor(m / 60)} h ${m % 60} min`;
+}
+const zoneCls = z => z.status !== 'ok' ? 'gray' : z.available > 5 ? 'green' : z.available > 0 ? 'amber' : 'red';
+
+function render() {
+  if (!data) return;
+  const m = data.meta, list = data.artists;
+  const withT = list.filter(a => a.total > 0);
+  $('sArtists').textContent = list.length;
+  $('sWith').textContent = withT.length;
+  $('sTotal').textContent = fmt(list.reduce((s, a) => s + a.total, 0));
+  $('sub').textContent = m.lastCycleAt
+    ? `Último ciclo completo ${ago(m.lastCycleAt)} (${Math.round(m.lastDurationMs / 1000)} s) · ${m.workers} workers · cada ${m.intervalMin} min`
+    : `Primer ciclo en curso · ${m.workers} workers · cada ${m.intervalMin} min`;
+  const pct = m.total ? Math.round(m.done / m.total * 100) : 0;
+  $('sProgress').textContent = m.running ? `${m.done}/${m.total}` : 'Listo';
+  $('sBar').style.width = (m.running ? pct : 100) + '%';
+  $('sNext').textContent = m.running ? 'escaneando…' : (m.nextAt ? Math.max(0, Math.round((new Date(m.nextAt) - Date.now()) / 1000)) + ' s' : '–');
+
+  const q = query.trim().toLowerCase();
+  const shown = list.filter(a => (!onlyHas || a.total > 0) && (!q || a.name.toLowerCase().includes(q)))
+    .sort((a, b) => (b.total > 0) - (a.total > 0) || a.name.localeCompare(b.name));
+
+  $('grid').innerHTML = shown.length ? shown.map(a => {
+    const stale = a.updatedAt && Date.now() - new Date(a.updatedAt) > (m.intervalMin * 2 + 1) * 60000;
+    const isErr = a.zones.length > 0 && a.zones.every(z => z.status !== 'ok' && z.zone === '-');
+    const zones = isErr ? `<div class="errbox"><b>⚠ No se pudo leer este evento</b>${esc(a.zones[0].detail || a.zones[0].status)}<br><small>Se reintenta en el siguiente ciclo.</small></div>`
+      : a.zones.length ? a.zones.map(z => `
+      <div class="zone ${zoneCls(z)}">
+        <span class="zn">${esc(z.zone)}</span>
+        <span class="zc">${z.status !== 'ok' ? 'Sin dato' : z.available > 0 ? fmt(z.available) : 'Agotado'}</span>
+        <span class="zp">${esc(z.price)}</span>
+        <span class="zf">${z.fila ? 'Fila ' + esc(z.fila) : ''}</span>
+      </div>`).join('') : '<div class="empty">Esperando primera lectura…</div>';
+    return `<article class="card ${a.total > 0 ? 'has' : ''} ${isErr ? 'err' : ''} ${a.zones.length ? '' : 'pending'}">
+      <header><h3>${esc(a.name)}<small>${esc(a.date || '')}</small></h3>
+        <div class="total"><b>${fmt(a.total)}</b><span>boletos</span></div></header>
+      <div class="zones">${zones}</div>
+      <div class="foot"><span class="${stale ? 'stale' : ''}">Actualizado ${ago(a.updatedAt)}</span>
+        <span>${isErr ? 'error' : a.zones.filter(z => z.available > 0).length + '/' + a.zones.length + ' zonas con boletos'}</span></div>
+    </article>`;
+  }).join('') : '<div class="empty">Nada que mostrar con ese filtro.</div>';
+}
+
+async function load() {
+  try { data = await (await fetch('/api', { cache: 'no-store' })).json(); } catch {}
+  render();
+}
+$('fAll').onclick = () => { onlyHas = false; $('fAll').classList.add('on'); $('fHas').classList.remove('on'); render(); };
+$('fHas').onclick = () => { onlyHas = true; $('fHas').classList.add('on'); $('fAll').classList.remove('on'); render(); };
+$('q').oninput = e => { query = e.target.value; render(); };
+setInterval(load, 5000);
+setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('es-MX'); render(); }, 1000);
+load();
+</script>
+</body>
+</html>
