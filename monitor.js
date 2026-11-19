@@ -13,6 +13,8 @@ catch {
 
 const { Jar, SessionExpired, scanEventHttp } = require('./http-scanner');
 const db = require('./db');
+const { createProxy, TOKEN_RE } = require('./proxy');
+const { createApi } = require('./api');
 
 // ---------- Configuración ----------
 const BASE = 'https://tickettap.com.mx/';
@@ -254,7 +256,12 @@ async function runCycle(context, retry = false) {
   if (expired) {
     console.log('Sesión expirada: renovando token...');
     const p = await context.newPage();
-    if (!(await ensureToken(p, true))) { await p.close(); meta.running = false; throw new Error('Sesión expirada y sin token nuevo'); }
+    token = ''; // el viejo ya no sirve; si llega uno por /url o /token se usa en cuanto llegue
+    if (!(await ensureToken(p, true))) {
+      await p.close(); meta.running = false;
+      notify(`⚠️ Token expirado. Abre http://localhost:${PORT}/url (túnel SSH) y entra a la lista de artistas.`);
+      throw new Error('Sesión expirada y sin token nuevo');
+    }
     await discoverArtists(p);
     await buildJar(context, p);
     await p.close();
@@ -288,7 +295,32 @@ function apiData() {
   return { meta, artists: list };
 }
 
+// Token entregado desde fuera (proxy /url o /token): lo guarda y despierta el ciclo de inmediato.
+let pendingCookies = null;
+let wake = () => {};
+function setExternalToken(t, cookies, via) {
+  if (cookies && cookies.length) pendingCookies = cookies;
+  if (!t || t === token) return;
+  token = t;
+  fs.writeFileSync(TOKEN_FILE, token);
+  console.log(`Token recibido (${via}); se guardó en .token`);
+  wake();
+}
+const proxy = createProxy({ base: BASE, onToken: (t, c, target) => setExternalToken(t, c, 'proxy ' + target.replace(/([?&]value=)[^&]+/i, '$1…')) });
+
+const api = createApi({ db, getMeta: () => meta, hasToken: () => !!token });
+
 http.createServer((req, res) => {
+  if (req.url === '/api/v1' || req.url.startsWith('/api/v1/') || req.url.startsWith('/api/v1?')) return api(req, res);
+  if (req.url === '/url' || req.url.startsWith('/url/') || req.url.startsWith('/url?')) return proxy(req, res);
+  if (req.url.startsWith('/token')) {
+    const q = new URL(req.url, 'http://x').searchParams.get('url') || '';
+    const m = q.match(TOKEN_RE);
+    const t = m ? decodeURIComponent(m[1]) : q.trim();
+    if (t) setExternalToken(t, null, 'manual');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(`<form><input name="url" size="80" placeholder="Pega la URL con value=..."><button>Enviar</button></form>${t ? '<p>Token recibido.</p>' : ''}<p><a href="/url">Abrir Tickettap por el proxy</a></p>`);
+  }
   if (req.url.startsWith('/api')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(apiData()));
@@ -306,6 +338,11 @@ http.createServer((req, res) => {
   for (;;) {
     let wait = Math.max(INTERVAL_MIN * 60000, 30000);
     try {
+      if (pendingCookies) {
+        const domain = new URL(BASE).hostname;
+        await context.addCookies(pendingCookies.map(c => ({ name: c.name, value: c.value, domain, path: '/' }))).catch(() => {});
+        pendingCookies = null;
+      }
       if (!(await ensureToken(page))) { wait = TOKEN_RETRY_SEC * 1000; }
       else {
         if (!(await discoverArtists(page)) && !Object.keys(artists).length) {
@@ -317,6 +354,6 @@ http.createServer((req, res) => {
       }
     } catch (e) { console.log('Error en ciclo:', e.message); wait = Math.min(wait, TOKEN_RETRY_SEC * 1000); }
     meta.nextAt = new Date(Date.now() + wait).toISOString();
-    await sleep(wait);
+    await new Promise(r => { const t = setTimeout(r, wait); wake = () => { clearTimeout(t); r(); }; });
   }
 })();
