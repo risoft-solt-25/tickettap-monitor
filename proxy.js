@@ -1,6 +1,6 @@
 // Proxy mínimo hacia Tickettap, montado en /url. Pensado para un solo usuario (tú, por túnel SSH).
 // Navegas por http://localhost:3000/url y, cuando pasa una URL/enlace con value=<token>, se avisa a onToken().
-// Las cookies de Tickettap quedan en el servidor (jar propio) y también se entregan a onToken.
+// Las cookies de Tickettap quedan en el servidor (handle.jar); el monitor reutiliza esa misma sesión.
 const { Jar } = require('./http-scanner');
 
 const TOKEN_RE = /[?&;]value=([^&#"'\s<>\\]+)/i;
@@ -24,7 +24,10 @@ function createProxy({ base, onToken }) {
       .replace(/<meta[^>]+http-equiv=["']?refresh[^>]*>/gi, m => m.replace(/url=\/(?!\/)/i, `url=${PREFIX}/`));
   }
 
-  return async function handle(req, res) {
+  handle.jar = jar; // sesión (cookies + User-Agent) con la que Tickettap emitió el token
+  return handle;
+
+  async function handle(req, res) {
     if (req.url === PREFIX) { res.writeHead(302, { Location: PREFIX + '/' }); return res.end(); }
     let upPath = req.url.slice(PREFIX.length) || '/';
     const target = upPath === '/' ? base : origin + upPath;
@@ -62,12 +65,12 @@ function createProxy({ base, onToken }) {
       res.writeHead(up.status, out);
       res.end(payload);
 
-      if (token) onToken(token, [...jar.map].map(([name, value]) => ({ name, value })), target);
+      if (token) onToken(token, target);
     } catch (e) {
       res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Proxy: ' + e.message);
     }
-  };
+  }
 }
 
 module.exports = { createProxy, TOKEN_RE };

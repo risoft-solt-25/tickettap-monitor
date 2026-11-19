@@ -129,4 +129,18 @@ async function scanEventHttp(jar, artist, url, { homeUrl } = {}) {
   return rows;
 }
 
-module.exports = { Jar, SessionExpired, scanEventHttp, parseForm };
+// Lee la home con la sesión (jar) dada y extrae un enlace por artista (los que traen idEvent=).
+async function discoverArtistsHttp(jar, homeUrl) {
+  const r = await request(jar, homeUrl);
+  const found = {};
+  for (const m of r.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const a = parseAttrs('<a ' + m[1]);
+    if (!a.href || !/idEvent=/i.test(a.href)) continue;
+    const name = decode(m[2].replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim() || a.title || '';
+    if (name) { try { found[name] = new URL(a.href, r.url).href; } catch {} }
+  }
+  const snippet = decode(r.html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]*>/gi, ' ')).replace(/\s+/g, ' ').trim().slice(0, 200);
+  return { found, finalUrl: r.url, htmlLength: r.html.length, snippet };
+}
+
+module.exports = { Jar, SessionExpired, scanEventHttp, parseForm, discoverArtistsHttp };

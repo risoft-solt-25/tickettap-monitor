@@ -7,3 +7,4 @@ recordings/
 
 *.db-wal
 *.db-shm
+.session.json
